@@ -113,7 +113,7 @@ Android/data/org.nx2a.t010059100d928000/files/log.txt
 A cada novo lançamento, o log anterior vira `log.prev.txt`. Copie o `log.txt`
 **antes** de abrir o jogo de novo, senão a sessão do problema se perde.
 
-## Canais da CowKillers
+## Canais do CowKillers
 
 🎬 Canal no YouTube: https://youtube.com/@emuucheck
 
