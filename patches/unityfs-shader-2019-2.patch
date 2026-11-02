@@ -1,0 +1,24 @@
+diff --git a/nxnative/dm/gfx/tools/unityfs.py b/nxnative/dm/gfx/tools/unityfs.py
+index 53d5e2f..3bea8ef 100644
+--- a/nxnative/dm/gfx/tools/unityfs.py
++++ b/nxnative/dm/gfx/tools/unityfs.py
+@@ -207,6 +207,11 @@ SHADER_2019_4 = (SHADER_2018_3.replace('vector<data:UInt16> m_KeywordIndices;',
+                  .replace('vector<data:unsigned int> offsets; vector<data:unsigned int> compressedLengths; vector<data:unsigned int> decompressedLengths;',
+                           'vector<data:vector<data:unsigned int>> offsets; vector<data:vector<data:unsigned int>> compressedLengths; vector<data:vector<data:unsigned int>> decompressedLengths;'))
+ assert SHADER_2019_4.count('m_LocalKeywordIndices') == SHADER_2019_4.count('progRayTracing') == 1 and SHADER_2019_4.count('vector<data:vector<data:unsigned int>>') == 3
++# The Unity 2019.2 Shader (Heaven Dust, Unity 2019.2.15f1: no bundles, its 92 shaders in Data/*.assets and Data/Resources), derived from 2018.3's by splitting
++# the keyword indices into global and local per subprogram, with no ray tracing program per pass and one segment per platform (offsets, compressedLengths and
++# decompressedLengths are plain numbers per platform, as before 2019.3). Validated against all 92 shaders: every platform's subprograms decompress.
++SHADER_2019_2 = (SHADER_2018_3.replace('vector<data:UInt16> m_KeywordIndices;', 'vector<data:UInt16> m_GlobalKeywordIndices; vector<data:UInt16> m_LocalKeywordIndices;'))
++assert SHADER_2019_2.count('m_LocalKeywordIndices') == 1 and SHADER_2019_2.count('progRayTracing') == 0 and SHADER_2019_2.count('vector<data:vector<data:unsigned int>>') == 0
+ # The Unity 2022.3 ComputeShader (Monster Train 2, Unity 2022.3.54f1: 12 in Data/sharedassets2.assets, which carries no type trees, and no bundle has one), from Unity 2022.3.54f1's type tree
+ # as AssetRipper's TypeTreeDumps records it (StructsDump/release/2022.3.54f1.dump). Each kernel variant's code is a program code of one stage, compute (the layout of a Shader's subprogram code)
+ COMPUTE_2022_3 = '''ComputeShaderResource: string name; string generatedName; int bindPoint; int samplerBindPoint; int texDimension
+@@ -239,6 +244,7 @@ KNOWN_TREES = {(CLASS_SHADER, bytes.fromhex('ea424a5fc1e48db62144df956f9e1005'))
+                (CLASS_SHADER, bytes.fromhex('a30e3dcf6c6d25153d6f64e5e41caf4e')): ('Shader', SHADER_2020_3),
+                (CLASS_SHADER, bytes.fromhex('8db760073e1392061e4a36995f0735af')): ('Shader', SHADER_2018_3),
+                (CLASS_SHADER, bytes.fromhex('ed2a06ce7fb8203f6efb5ab5e0ce20d5')): ('Shader', SHADER_2019_4),
++               (CLASS_SHADER, bytes.fromhex('ba38e7fa8c2561e09fad219bd4b98f3b')): ('Shader', SHADER_2019_2),
+                (CLASS_COMPUTE_SHADER, bytes.fromhex('1a95529ac2eb1a97cd9d2a4356bd722f')): ('ComputeShader', COMPUTE_2019_4),
+                (CLASS_COMPUTE_SHADER, bytes.fromhex('bfdf63ab0ce84d5a2c765ee560d90fe7')): ('ComputeShader', COMPUTE_2022_3),
+                (CLASS_COMPUTE_SHADER, bytes.fromhex('43a0948a3f403068c0b31bff90ba0c9a')): ('ComputeShader', COMPUTE_6000_3)}

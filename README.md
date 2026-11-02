@@ -9,6 +9,22 @@ reproduzido em Vulkan, sem emulador.
 > o APK, os dados, os shaders nem nenhum arquivo extraído do jogo. Não há release
 > aqui, e não haverá, até que o port esteja provado no aparelho.
 
+## O que tem neste repositório
+
+- `README.md` — este arquivo: estado, tutorial e links.
+- `profile/010059100D928000/` — o perfil provisório do port: `android.tsv`,
+  `game.tsv`, `shader_map.tsv`, `shader_facts.tsv`, `shader_pairs.tsv`,
+  `shader_map.tsv.conflicts.tsv`, `bf_want.tsv` e `pso_manifest.tsv`.
+  São só tabelas e hashes de shaders — nenhum `.patched.bin`, nenhum
+  `.key`, nenhum `shaders.dmsv`.
+- `docs/survey.md` — o survey do jogo (módulos, SDK, Unity, RomFS,
+  imports e perfil provisório), com os caminhos locais removidos.
+- `patches/` — os dois patches próprios do port, com README próprio
+  explicando base e teste de cada um: `unityfs-shader-2019-2.patch`
+  (layout Shader do Unity 2019.2, sem o qual o port trava no passo 4/8)
+  e `host-screen-modes.patch` (Fit, Stretch e Crop no host).
+- Capturas e vídeo de gameplay: ainda não há nenhum para este port.
+
 ## Estado atual (02/11/2026, honesto)
 
 - Port experimental construído com o porter do nx2android

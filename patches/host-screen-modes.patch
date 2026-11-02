@@ -1,0 +1,166 @@
+diff --git a/nxnative/dm/android/front_android.c b/nxnative/dm/android/front_android.c
+index e11563c..ba5d5e5 100644
+--- a/nxnative/dm/android/front_android.c
++++ b/nxnative/dm/android/front_android.c
+@@ -52,6 +52,7 @@ void dm_focus_set(int st); void dm_audio_suspend(int on); void guest_clock_freez
+ static char g_root[512];
+ static _Atomic int g_set_overlay = 1, g_set_rumble = 1, g_set_fps;   // the gamepad shown; rumble and tap vibration; the frame rate counter (top left)
+ static _Atomic int g_set_opacity = 60;   // the gamepad's opacity, percent (OV_OPACITY_MIN..MAX: the menu's Opacity slider)
++static _Atomic int g_set_screen;   // 0 = Fit (aspect kept, black borders), 1 = Stretch (full window, distorted), 2 = Crop (full window, no distortion, top/bottom cut)
+ // the player's own layout (overlay_layout.h dm_overlay_custom): [0] the saved one (settings.txt ui= rows), [1] the layout editor's while it is open; per layout
+ // and control: x + 1, y + 1 in 1/10000 of the window's width and height (0 = the layout's place), the size factor in 1/1000 (0 = 1)
+ static _Atomic int g_cust[2][2][DM_AOV_N][3], g_cust_ver, g_edit;
+@@ -66,6 +67,7 @@ static void settings_load(void) {
+     if (!f) return;
+     while (fgets(line, sizeof line, f)) { int v; if (sscanf(line, "overlay=%d", &v) == 1) atomic_store(&g_set_overlay, v != 0); else if (sscanf(line, "rumble=%d", &v) == 1) atomic_store(&g_set_rumble, v != 0);
+         else if (sscanf(line, "fps=%d", &v) == 1) atomic_store(&g_set_fps, v != 0);
++        else if (sscanf(line, "screen=%d", &v) == 1) atomic_store(&g_set_screen, v < 0 ? 0 : v > 2 ? 2 : v);
+         else if (sscanf(line, "docked=%d", &v) == 1) setenv("DM_OPMODE", v ? "1" : "0", 1);   // over env.txt's: the host reads it once, at its first query
+         else if (sscanf(line, "opacity=%d", &v) == 1) atomic_store(&g_set_opacity, v < OV_OPACITY_MIN ? OV_OPACITY_MIN : v > OV_OPACITY_MAX ? OV_OPACITY_MAX : v);
+         else if (!strncmp(line, "hidden=", 7)) {   // hidden=<layout>,<control>: one line per control the player hid in the layout editor (never the menu button)
+@@ -89,8 +91,8 @@ static void settings_load(void) {
+ static void settings_save(void) {
+     char p[600], tmp[610]; snprintf(p, sizeof p, "%s/settings.txt", g_root); snprintf(tmp, sizeof tmp, "%s.new", p);
+     FILE *f = fopen(tmp, "w"); if (!f) { LOG("[RED] cannot write %s", tmp); return; }
+-    fprintf(f, "overlay=%d\nrumble=%d\ndocked=%d\nfps=%d\nopacity=%d\n", atomic_load(&g_set_overlay), atomic_load(&g_set_rumble), dm_opmode() != 0, atomic_load(&g_set_fps),
+-            atomic_load(&g_set_opacity));
++    fprintf(f, "overlay=%d\nrumble=%d\ndocked=%d\nfps=%d\nopacity=%d\nscreen=%d\n", atomic_load(&g_set_overlay), atomic_load(&g_set_rumble), dm_opmode() != 0, atomic_load(&g_set_fps),
++            atomic_load(&g_set_opacity), atomic_load(&g_set_screen));
+     for (int l = 0; l < 2; l++) for (int i = 0; i < OV_N; i++) {
+         _Atomic int *c = g_cust[0][l][i]; int x = atomic_load(&c[0]), y = atomic_load(&c[1]), z = atomic_load(&c[2]);
+         if ((x && y) || z) fprintf(f, "ui=%s,%s,%d,%d,%d\n", LAYOUT_NAMES[l], OV_LAYOUTS[0][i].name, x && y ? x - 1 : -1, x && y ? y - 1 : -1, z ? z : 1000);
+@@ -295,9 +297,10 @@ int dm_menu_state(void) {
+     if (atomic_load(&g_edit)) return OVE_ST | atomic_load(&g_ed_st);
+     if (atomic_load(&g_sp_on)) return OVS_ST | (atomic_load(&g_sp_hi) + 1) << 4 | (atomic_load(&g_sp_ver) & 255) << 20;
+     return atomic_load(&g_set_overlay) | atomic_load(&g_set_rumble) << 1 | (dm_opmode() != 0) << 2 | atomic_load(&g_set_fps) << 3 | (atomic_load(&g_menu_hi) + 1) << 4 |
+-           atomic_load(&g_menu_tab) << 8 | atomic_load(&g_set_opacity) << 9 | atomic_load(&g_sv_st) << 20 | (atomic_load(&g_sv_n) & 15) << 24;
++           atomic_load(&g_menu_tab) << 8 | atomic_load(&g_set_opacity) << 9 | atomic_load(&g_sv_st) << 20 | (atomic_load(&g_sv_n) & 15) << 24 | atomic_load(&g_set_screen) << 28;
+ }
+-int dm_overlay_fps(void) { return atomic_load(&g_set_fps) && !atomic_load(&g_menu); }   // gfx_vk_present.c draws the counter (not while the menu holds the game)
++int dm_overlay_fps(void) { return atomic_load(&g_set_fps) && !atomic_load(&g_menu); }
++int dm_present_screen(void) { return atomic_load(&g_set_screen); }   // gfx_vk_present.c present_window: 0 Fit, 1 Stretch, 2 Crop   // gfx_vk_present.c draws the counter (not while the menu holds the game)
+ static void menu_open(int hi) {
+     if (!atomic_load(&g_running) || atomic_exchange(&g_menu, 1)) return;
+     atomic_store(&g_menu_hi, hi); g_menu_ptr = -1;
+@@ -332,6 +335,7 @@ static void menu_do(int item) {
+     else if (item == OVM_RUMBLE) { int on = !atomic_load(&g_set_rumble); atomic_store(&g_set_rumble, on); dm_haptics_android_set(on); settings_save(); }
+     else if (item == OVM_FPS) { atomic_store(&g_set_fps, !atomic_load(&g_set_fps)); settings_save(); }
+     else if (item == OVM_MODE) { dm_set_opmode(dm_opmode() ? 0 : 1); settings_save(); }   // the game takes it when it goes on
++    else if (item == OVM_SCREEN) { atomic_store(&g_set_screen, (atomic_load(&g_set_screen) + 1) % 3); settings_save(); }   // Fit -> Stretch -> Crop -> Fit; present_window re-presents the held frame at once
+     else if (item == OVM_TAB) { menu_tab(atomic_load(&g_menu_tab) + 1); return; }
+     else if (item == OVM_EDIT) { dm_haptics_android_tap(); ed_open(); return; }
+     else if (item == OVM_OPACITY) return;   // (the slider is dragged, or stepped with left and right)
+diff --git a/nxnative/dm/android/gfx_vk_present.c b/nxnative/dm/android/gfx_vk_present.c
+index 56e9412..0161754 100644
+--- a/nxnative/dm/android/gfx_vk_present.c
++++ b/nxnative/dm/android/gfx_vk_present.c
+@@ -58,8 +58,8 @@ static ANativeWindow *g_win;
+ static VkImageView g_sview[8];
+ // Where the game's picture lies in the window (fractions: x, y, width, height; aspect kept, black borders around it), for the front end's touch points, which hle_touch.c
+ // takes relative to the picture: normalized by the whole window, a tap in Unpacking's 3040x1904 window (97 px borders) was off by up to 5% of the height
+-static _Atomic uint32_t g_pic[4] = {0, 0, 1u << 20, 1u << 20};
+-static void vk_pic_set(float x, float y, float w, float h) { atomic_store(&g_pic[0], (uint32_t)(x * (1 << 20))); atomic_store(&g_pic[1], (uint32_t)(y * (1 << 20))); atomic_store(&g_pic[2], (uint32_t)(w * (1 << 20))); atomic_store(&g_pic[3], (uint32_t)(h * (1 << 20))); }
++static _Atomic int32_t g_pic[4] = {0, 0, 1 << 20, 1 << 20};   // signed: Crop maps the window to a sub-rect of the game image, so pic[0]/pic[1] can be negative
++static void vk_pic_set(float x, float y, float w, float h) { atomic_store(&g_pic[0], (int32_t)(x * (1 << 20))); atomic_store(&g_pic[1], (int32_t)(y * (1 << 20))); atomic_store(&g_pic[2], (int32_t)(w * (1 << 20))); atomic_store(&g_pic[3], (int32_t)(h * (1 << 20))); }
+ void dm_picture_rect(float r[4]) { for (int i = 0; i < 4; i++) r[i] = (float)atomic_load(&g_pic[i]) / (1 << 20); }
+ __attribute__((weak)) int dm_overlay_visible(void) { return 0; }
+ __attribute__((weak)) float dm_overlay_scale(void) { return 1; }
+@@ -67,6 +67,7 @@ __attribute__((weak)) void dm_overlay_knob(int stick, float *dx, float *dy) { (v
+ __attribute__((weak)) int64_t dm_overlay_pressed(int ctl, uint64_t bit) { (void)ctl; (void)bit; return 0; }
+ __attribute__((weak)) int dm_menu_state(void) { return -1; }
+ __attribute__((weak)) int dm_overlay_fps(void) { return 0; }   // front_android.c: the pause menu's Show FPS
++__attribute__((weak)) int dm_present_screen(void) { return 0; }   // front_android.c: 0 Fit, 1 Stretch, 2 Crop
+ __attribute__((weak)) int dm_save_note(char *out, int cap) { if (cap > 0) out[0] = 0; return OVX_IDLE; }   // front_android.c: the save manager's rows
+ __attribute__((weak)) int dm_save_rows(ov_srow rows[OVM_ROWS]) { (void)rows; return 0; }
+ __attribute__((weak)) int dm_overlay_custom(int layout, int ctl, float *x, float *y, float *s) { (void)layout; (void)ctl; (void)x; (void)y; *s = 1; return 0; }
+@@ -258,7 +259,7 @@ static void cv_text(const ov_canvas *cv, float x, float cy, const char *s, int s
+         }
+     }
+ }
+-static const uint8_t C_WHITE[4] = {255, 255, 255, 255}, C_ACCENT[4] = {245, 124, 0, 255};
++static const uint8_t C_WHITE[4] = {255, 255, 255, 255}, C_ACCENT[4] = {176, 141, 87, 255};
+ static void ov_menu_icon(const ov_canvas *cv, const ov_ctl *c, const float b[4]) {   // the menu button: a dark pill with a ring and three bars
+     static const uint8_t fill[4] = {20, 20, 26, 170}, ring[4] = {255, 255, 255, 210};
+     float r = b[3], t = fmaxf(2, r * 0.07f);
+@@ -297,7 +298,7 @@ static void ov_text_panel(const ov_canvas *cv) {
+     while (hs > 1 && cv_text_w(k, hs) > W - 2 * pad) hs--;
+     cv_text(cv, (W - cv_text_w(k, hs)) / 2, H * 0.95f, k, hs, dim);
+ }
+-static const uint8_t C_BG[4] = {245, 124, 0, 170}, C_LINE[4] = {255, 255, 255, 40}, C_HI[4] = {255, 255, 255, 34}, C_DIM[4] = {200, 200, 210, 255}, C_OFF[4] = {101, 50, 10, 255},
++static const uint8_t C_BG[4] = {14, 21, 26, 236}, C_LINE[4] = {255, 255, 255, 40}, C_HI[4] = {255, 255, 255, 34}, C_DIM[4] = {224, 217, 209, 255}, C_OFF[4] = {90, 70, 40, 255},
+                      C_KNOB_OFF[4] = {215, 215, 222, 255};
+ static void cv_button(const ov_canvas *cv, const float b[4], const char *l, int fill, int held) {   // a rounded button with its word, as large as fits
+     static const uint8_t face[4] = {255, 255, 255, 30}, rim[4] = {255, 255, 255, 90};
+@@ -308,7 +309,7 @@ static void cv_button(const ov_canvas *cv, const float b[4], const char *l, int
+ }
+ // The pause menu (overlay_layout.h: the rows, the tabs, the slider's track), in the raster's panel rectangle. Its letters are as large as a row allows (0.30 of
+ // its height, about 2.7 mm on a 6.7" phone and 3.6 mm on the 8.8" tablet) and smaller only when the widest row would not fit beside its control
+-static const char *const OVM_LABELS[OVM_N] = {"Show gamepad", "Opacity", "Edit layout", "Rumble", "Show FPS", "Mode", "Export save", "Import save", "Resume", ""};
++static const char *const OVM_LABELS[OVM_N] = {"Show gamepad", "Opacity", "Edit layout", "Rumble", "Show FPS", "Mode", "Export save", "Import save", "Resume", "", "Screen"};
+ static const char *const OVM_BUTTONS[OVM_N] = {[OVM_EDIT] = "Edit", [OVM_EXPORT] = "Export", [OVM_IMPORT] = "Import"};   // the rows that are a button: its word
+ static const char *const OVM_MODES[2] = {"Handheld", "Docked"};
+ static void ov_menu_panel(const ov_canvas *cv, int st) {
+@@ -318,8 +319,8 @@ static void ov_menu_panel(const ov_canvas *cv, int st) {
+     int is = (int)fmaxf(1, roundf(rh * 0.30f / 7));
+     for (; is > 1; is--) {   // the widest row: its label, a gap and its control
+         float need = 0;
+-        for (int i = 0; i < OVM_RESUME; i++) {
+-            float lw = cv_text_w(OVM_LABELS[i], is), cw = i == OVM_MODE ? 2 * (cv_text_w(OVM_MODES[0], is) + sh) : OVM_BUTTONS[i] ? cv_text_w(OVM_BUTTONS[i], is) + 2 * sh : sw + gap + cv_text_w("OFF", is);
++        for (int i = 0; i < OVM_N; i++) {
++            float lw = cv_text_w(OVM_LABELS[i], is), cw = i == OVM_MODE ? 2 * (cv_text_w(OVM_MODES[0], is) + sh) : i == OVM_SCREEN ? 3 * (cv_text_w("Stretch", is) + sh) : OVM_BUTTONS[i] ? cv_text_w(OVM_BUTTONS[i], is) + 2 * sh : sw + gap + cv_text_w("OFF", is);
+             need = fmaxf(need, i == OVM_OPACITY ? fmaxf(lw / 0.38f, cv_text_w("80%", is) / 0.14f) : lw + gap + cw + rh * 0.3f);
+         }
+         if (need <= rw && cv_text_w(OVM_TAB_NAMES[0], is) < rw / 2 - sh) break;
+@@ -353,6 +354,12 @@ static void ov_menu_panel(const ov_canvas *cv, int st) {
+             cv_text(cv, x1 - cv_text_w(v, vs), cy, v, vs, x == OVX_FAILED ? C_ACCENT : C_WHITE);
+         } else if (OVM_BUTTONS[it]) {   // a button
+             float bw = cv_text_w(OVM_BUTTONS[it], is) + 2 * sh, b[4] = {x1 - bw, cy - rh * 0.30f, bw, rh * 0.60f}; cv_button(cv, b, OVM_BUTTONS[it], 0, 0);
++        } else if (it == OVM_SCREEN) {   // three segments: Fit | Stretch | Crop (mode in st bits 28-29)
++            int mode = st >> 28 & 3; float hh = rh * 0.46f, segw = fmaxf(cv_text_w("Fit", is), fmaxf(cv_text_w("Stretch", is), cv_text_w("Crop", is))) + sh, x0 = x1 - 3 * segw;
++            static const char *const names[3] = {"Fit", "Stretch", "Crop"};
++            cv_rrect(cv, x0, cy - hh / 2, x1, cy + hh / 2, hh / 2, C_OFF);
++            cv_rrect(cv, x0 + mode * segw, cy - hh / 2, x0 + (mode + 1) * segw, cy + hh / 2, hh / 2, C_ACCENT);
++            for (int k = 0; k < 3; k++) cv_text(cv, x0 + k * segw + (segw - cv_text_w(names[k], is)) / 2, cy, names[k], is, k == mode ? C_WHITE : C_DIM);
+         } else if (it == OVM_MODE) {   // two segments, the current one filled: handheld (performance) | docked (resolution)
+             int docked = st >> 2 & 1; float hh = rh * 0.46f, segw = fmaxf(cv_text_w(OVM_MODES[0], is), cv_text_w(OVM_MODES[1], is)) + sh, x0 = x1 - 2 * segw;
+             cv_rrect(cv, x0, cy - hh / 2, x1, cy + hh / 2, hh / 2, C_OFF);
+@@ -752,10 +759,17 @@ static void present_window(vkimg_t *im, const int crop[4], double period, uint64
+     VkClearColorValue black = {{0, 0, 0, 1}}; VkImageSubresourceRange rg = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+     vkCmdClearColorImage(cb, g_simg[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &rg);
+     int cx = crop ? crop[0] : 0, cy = crop ? crop[1] : 0, cw = crop && crop[2] ? crop[2] : (int)im->w, ch = crop && crop[3] ? crop[3] : (int)im->h;
+-    double s = fmin((double)g_sext.width / cw, (double)g_sext.height / ch); int dw = (int)(cw * s), dh = (int)(ch * s), dx = ((int)g_sext.width - dw) / 2, dy = ((int)g_sext.height - dh) / 2;
+-    vk_pic_set((float)dx / g_sext.width, (float)dy / g_sext.height, (float)dw / g_sext.width, (float)dh / g_sext.height);
+-    VkImageBlit b = {{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{cx, cy, 0}, {cx + cw, cy + ch, 1}}, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{dx, dy, 0}, {dx + dw, dy + dh, 1}}};
+-    if (vk_window_bottom_up()) { b.srcOffsets[0].y = cy + ch; b.srcOffsets[1].y = cy; }   // lower-left origin: the window image is stored bottom-up (gfx_vk_exec.c)
++    int dw, dh, dx, dy, sx = cx, sy = cy, sw = cw, sh = ch, mode = dm_present_screen();
++    if (mode == 1) { dw = (int)g_sext.width; dh = (int)g_sext.height; dx = 0; dy = 0; vk_pic_set(0, 0, 1, 1); }   // Stretch: fill the whole window, aspect distorted
++    else if (mode == 2) {   // Crop: fill the whole window with no distortion, by showing only the middle of the source (top/bottom cut on a wide phone)
++        double s = fmax((double)g_sext.width / cw, (double)g_sext.height / ch);
++        double vw = (double)g_sext.width / s, vh = (double)g_sext.height / s;
++        sx = cx + (int)((cw - vw) / 2); sy = cy + (int)((ch - vh) / 2); sw = (int)vw; sh = (int)vh;
++        dw = (int)g_sext.width; dh = (int)g_sext.height; dx = 0; dy = 0;
++        vk_pic_set(-(float)sx / (float)vw, -(float)sy / (float)vh, (float)cw / (float)vw, (float)ch / (float)vh);   // window -> the visible sub-rect of the game image
++    } else { double s = fmin((double)g_sext.width / cw, (double)g_sext.height / ch); dw = (int)(cw * s); dh = (int)(ch * s); dx = ((int)g_sext.width - dw) / 2; dy = ((int)g_sext.height - dh) / 2; vk_pic_set((float)dx / g_sext.width, (float)dy / g_sext.height, (float)dw / g_sext.width, (float)dh / g_sext.height); }   // Fit: aspect kept, black borders
++    VkImageBlit b = {{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{sx, sy, 0}, {sx + sw, sy + sh, 1}}, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{dx, dy, 0}, {dx + dw, dy + dh, 1}}};
++    if (vk_window_bottom_up()) { b.srcOffsets[0].y = sy + sh; b.srcOffsets[1].y = sy; }   // lower-left origin: the window image is stored bottom-up (gfx_vk_exec.c)
+     vkCmdBlitImage(cb, im->img, VK_IMAGE_LAYOUT_GENERAL, g_simg[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
+     VkImageLayout lay = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+     int ovm = dm_overlay_visible(), menu = dm_menu_state(), fps = dm_overlay_fps();
+diff --git a/nxnative/dm/android/overlay_layout.h b/nxnative/dm/android/overlay_layout.h
+index 8a3cbb0..f7a763b 100644
+--- a/nxnative/dm/android/overlay_layout.h
++++ b/nxnative/dm/android/overlay_layout.h
+@@ -79,11 +79,11 @@ void dm_overlay_theme_done(const ov_theme *t);   // the pixels are on the GPU: t
+ 
+ // ---- the pause menu: a panel in the middle of the window: a row of tabs, the open tab's rows, and Resume. Everything is placed in a panel rectangle p
+ // (x, y, width, height: the window's for touches, the raster's for drawing), so the touches and the drawing agree ----
+-enum { OVM_OVERLAY, OVM_OPACITY, OVM_EDIT, OVM_RUMBLE, OVM_FPS, OVM_MODE, OVM_EXPORT, OVM_IMPORT, OVM_RESUME, OVM_TAB, OVM_N };   // OVM_TAB: the tabs' row;
++enum { OVM_OVERLAY, OVM_OPACITY, OVM_EDIT, OVM_RUMBLE, OVM_FPS, OVM_MODE, OVM_EXPORT, OVM_IMPORT, OVM_RESUME, OVM_TAB, OVM_SCREEN, OVM_N };   // OVM_TAB: the tabs' row;
+             // OVM_EDIT: the layout editor; OVM_MODE: handheld (performance) or docked (resolution); OVM_EXPORT, OVM_IMPORT: kept in the enum for the menu's sizing/labels, but no longer on any tab (save UI moved to the launcher)
+ #define OVM_TABS 2
+ #define OVM_PER_TAB 4
+-static const int OVM_TAB_ITEMS[OVM_TABS][OVM_PER_TAB] = {{OVM_OVERLAY, OVM_OPACITY, OVM_EDIT, OVM_RUMBLE}, {OVM_FPS, OVM_MODE, -1, -1}};   // Game tab: FPS and Mode only; save Export/Import moved to the launcher's Configuracao (the host backend in saves_android.c still serves the launcher's import.txt at the next start)
++static const int OVM_TAB_ITEMS[OVM_TABS][OVM_PER_TAB] = {{OVM_OVERLAY, OVM_OPACITY, OVM_EDIT, OVM_RUMBLE}, {OVM_FPS, OVM_MODE, OVM_SCREEN, -1}};   // Game tab: FPS, Mode and Screen; save Export/Import moved to the launcher's Configuracao (the host backend in saves_android.c still serves the launcher's import.txt at the next start)
+ static const char *const OVM_TAB_NAMES[OVM_TABS] = {"Gamepad", "Game"};
+ #define OVM_ROWS (OVM_PER_TAB + 2)   // the tabs, a tab's rows (as many for every tab: the panel keeps its size), Resume
+ static inline int ov_menu_item(int tab, int row) { return row == 0 ? OVM_TAB : row == OVM_ROWS - 1 ? OVM_RESUME : row > 0 && row < OVM_ROWS - 1 ? OVM_TAB_ITEMS[tab & 1][row - 1] : -1; }
