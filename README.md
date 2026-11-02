@@ -5,7 +5,7 @@ Port experimental de **Heaven Dust** (Switch) para Android, feito com o
 nativamente no celular, com o host substituindo os serviços do Switch e o NVN
 reproduzido em Vulkan, sem emulador.
 
-> **Experimental — sem release.** Este repositório não contém o jogo, as chaves,
+> **Experimental.** Este repositório não contém o jogo, as chaves,
 > o APK, os dados, os shaders nem nenhum arquivo extraído do jogo. Não há release
 > aqui, e não haverá, até que o port esteja provado no aparelho.
 
