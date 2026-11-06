@@ -6,8 +6,9 @@ nativamente no celular, com o host substituindo os serviços do Switch e o NVN
 reproduzido em Vulkan, sem emulador.
 
 > **Experimental.** Este repositório não contém o jogo, as chaves,
-> o APK, os dados, os shaders nem nenhum arquivo extraído do jogo. Não há release
-> aqui, e não haverá, até que o port esteja provado no aparelho.
+> os dados, os shaders nem nenhum arquivo extraído do jogo. O launcher
+> está na [release v0.1](https://github.com/CowKillers/heaven-dust-nx2android/releases/tag/v0.1)
+> — o port segue experimental e não está provado até o fim.
 
 ## O que tem neste repositório
 
@@ -23,6 +24,8 @@ reproduzido em Vulkan, sem emulador.
   explicando base e teste de cada um: `unityfs-shader-2019-2.patch`
   (layout Shader do Unity 2019.2, sem o qual o port trava no passo 4/8)
   e `host-screen-modes.patch` (Fit, Stretch e Crop no host).
+- Release v0.1 — o APK do launcher (versionCode 10, jogo 1.0.2), na aba
+  Releases do repositório.
 - Capturas e vídeo de gameplay: ainda não há nenhum para este port.
 
 ## Estado atual (02/11/2026, honesto)
@@ -146,7 +149,7 @@ passos são publicados primeiro no grupo.
 - Nenhuma chave (`prod.keys`, chave de assinatura ou qualquer arquivo
   de chave).
 - Nenhum log, save ou `env.txt` de aparelho.
-- O APK **não** está neste repositório e não há release aqui.
+- O APK do launcher está na [release v0.1](https://github.com/CowKillers/heaven-dust-nx2android/releases/tag/v0.1) — o código do launcher não está neste repositório.
 
 Cada pessoa precisa do próprio dump do jogo e das próprias chaves. Não
 distribua arquivos do jogo nem chaves.
